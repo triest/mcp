@@ -3,5 +3,9 @@
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
-    return view('welcome');
+    return redirect('/tasks');
+});
+
+Route::get('/tasks', function () {
+    return view('tasks');
 });
