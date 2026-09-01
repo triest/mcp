@@ -1,59 +1,143 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Task Tracker MCP
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Свой мини-таск-трекер на Laravel 12 с REST API и встроенным MCP-сервером
+(JSON-RPC 2.0 поверх HTTP) — аналог референсного проекта электронной очереди
+(`queue-assignment`), только вместо очереди — задачи.
 
-## About Laravel
+## Возможности
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+- Регистрация/логин пользователей (Laravel Sanctum, токены доступа).
+- CRUD задач через REST API.
+- Простой веб-интерфейс `/tasks` (Blade + vanilla JS): список задач,
+  фильтр по статусу, создание, смена статуса, удаление, выпуск MCP-токена.
+- MCP-сервер на `/api/mcp` — тот же функционал доступен агентам (Claude Code
+  и другим MCP-клиентам) через набор инструментов.
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Стек
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+- PHP 8.2+ (проверено также на PHP 8.5), Laravel 12
+- БД: SQLite локально (по умолчанию), MySQL на проде
+- Laravel Sanctum — токены REST API
+- Собственный JSON-RPC 2.0 MCP-эндпоинт (без внешних MCP-пакетов)
 
-## Learning Laravel
+## Структура проекта
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+```
+app/
+  Models/Task.php            — модель задачи
+  Models/McpToken.php        — модель отзываемых MCP-токенов
+  Models/User.php            — пользователь (+ трейт HasApiTokens от Sanctum)
+  Http/Controllers/
+    AuthController.php       — register/login
+    TaskController.php       — REST CRUD задач
+    McpTokenController.php   — выпуск/отзыв MCP-токенов
+    McpController.php        — MCP JSON-RPC эндпоинт (initialize/tools/list/tools/call)
+  Http/Middleware/
+    AuthenticateMcpToken.php — авторизация MCP-запросов по токену (?token= или Bearer)
+  Services/
+    McpToolRegistry.php      — определения инструментов + диспетчер вызовов
+database/migrations/
+  *_create_tasks_table.php
+  *_create_mcp_tokens_table.php
+routes/
+  api.php                    — все API-роуты, включая /api/mcp
+  web.php                    — редирект на /tasks, сама страница /tasks
+resources/views/tasks.blade.php — веб-интерфейс списка задач
+```
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+## Установка (локально)
 
-## Laravel Sponsors
+```bash
+composer install
+cp .env.example .env
+php artisan key:generate
+composer require laravel/sanctum
+php artisan vendor:publish --provider="Laravel\Sanctum\SanctumServiceProvider"
+php artisan migrate
+php artisan serve
+```
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+Убедитесь, что в `bootstrap/app.php` зарегистрирован `api`-роутинг и alias
+`mcp.token => App\Http\Middleware\AuthenticateMcpToken::class` (см. код).
 
-### Premium Partners
+Проверка: `GET /api/health` → `{"status":"ok","time":"..."}`.
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+## REST API
 
-## Contributing
+| Метод | Путь | Описание |
+|---|---|---|
+| POST | `/api/auth/register` | Регистрация `{email, name, password}` → `access_token` |
+| POST | `/api/auth/login` | Логин `{email, password}` → `access_token` |
+| GET | `/api/tasks` | Список задач (`?status=todo\|in_progress\|done\|cancelled`) |
+| POST | `/api/tasks` | Создать задачу `{title, description?, assignee_id?}` |
+| GET | `/api/tasks/{id}` | Получить задачу |
+| PATCH | `/api/tasks/{id}` | Обновить (title/description/status/assignee_id) |
+| DELETE | `/api/tasks/{id}` | Удалить |
+| POST | `/api/mcp-tokens` | Выпустить MCP-токен `{name?}` (нужен `Authorization: Bearer <access_token>`) |
+| GET | `/api/mcp-tokens` | Список своих MCP-токенов |
+| DELETE | `/api/mcp-tokens/{id}` | Отозвать MCP-токен |
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+Все роуты, кроме `health`, `auth/*` и `mcp`, требуют заголовок
+`Authorization: Bearer <access_token>` (Sanctum).
 
-## Code of Conduct
+## MCP-сервер
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+Эндпоинт: `POST /api/mcp` — JSON-RPC 2.0 (методы `initialize`, `tools/list`,
+`tools/call`). Авторизация — MCP-токен (не путать с access_token Sanctum),
+через query-параметр `?token=` или заголовок `Authorization: Bearer`.
 
-## Security Vulnerabilities
+Доступные инструменты:
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+- `list_tasks(status?)`
+- `create_task(title, description?, assignee_id?)`
+- `get_task(task_id)`
+- `update_task_status(task_id, status)`
+- `assign_task(task_id, assignee_id)`
+- `delete_task(task_id)`
 
-## License
+### Подключение через Claude Code (работает с обычным http, без SSL)
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+```bash
+claude mcp add --transport http task-tracker http://<домен>/api/mcp \
+  --header "Authorization: Bearer <MCP-токен>"
+claude mcp list
+```
+
+### Подключение через веб-форму Claude (Settings → Connectors)
+
+Требует **публичный HTTPS**-адрес (localhost/http не подходят по дизайну
+формы). URL с токеном прямо в query-параметре:
+
+```
+https://<домен>/api/mcp?token=<MCP-токен>
+```
+
+OAuth-дискавери в форме в этом случае просто пропускается — сервер не
+объявляет OAuth-эндпоинтов и отвечает напрямую по токену.
+
+## Веб-интерфейс
+
+`/tasks` — вход/регистрация, создание задач, список с фильтром по статусу,
+смена статуса, удаление, кнопка «Выпустить MCP-токен» (сразу собирает
+готовую ссылку для подключения).
+
+## Деплой (пример: Спринтхост / shared-хостинг с SSH)
+
+1. Залить код по SSH/git на сервер (вне `public_html`, приватная часть).
+2. `composer install --no-dev --optimize-autoloader`
+3. Document root сайта в панели → `.../public` (папка Laravel с `index.php`),
+   НЕ корень проекта.
+4. `.env`: `DB_CONNECTION=mysql` + данные MySQL из панели, `APP_URL=https://<домен>`.
+5. `php artisan migrate --force`
+6. Включить SSL (Let's Encrypt) в панели хостинга для домена — без него
+   веб-форма коннектора Claude работать не будет (но Claude Code по http
+   подключится и так).
+
+## Известные ограничения / TODO
+
+- MCP-авторизация — простой статический токен, не полноценный OAuth 2.0.
+  Для «официального» подключения через веб-форму Claude нужен отдельный
+  OAuth-сервер (например, Laravel Passport + discovery + dynamic client
+  registration + consent UI) — в проекте не реализовано.
+- Список задач общий (без разделения по командам/проектам) — упрощённая
+  модель для демонстрации MCP.
